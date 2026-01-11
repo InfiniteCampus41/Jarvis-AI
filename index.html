@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>
+            AI Voice Control
+        </title>
+        <style>
+            * { 
+                box-sizing: border-box; 
+                margin: 0; 
+                padding: 0; 
+                font-family: 'Segoe UI', sans-serif; 
+            }
+            body { 
+                background: #111; 
+                color: #fff; 
+                display: flex; 
+                flex-direction: column; 
+                align-items: center; 
+                min-height: 100vh; 
+                padding: 20px;
+            }
+            h1 {
+                font-size: 2.5em;
+                margin-bottom: 20px;
+                text-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+            }
+            button {
+                padding: 10px 20px;
+                margin: 10px 5px;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: bold;
+                background: #222;
+                color: white;
+                transition: 0.2s;
+            }
+            button:hover {
+                background: #333;
+            }
+            input[type="text"] {
+                padding: 10px;
+                width: 300px;
+                border-radius: 8px;
+                border: none;
+                margin: 10px 0;
+            }
+            #status {
+                background: rgba(0,0,0,0.2);
+                padding: 15px;
+                margin: 10px 0;
+                border-radius: 12px;
+                min-height: 50px;
+                width: 90%;
+                max-width: 500px;
+                text-align: center;
+            }
+            .response-history {
+                margin-top: 20px;
+                width: 90%;
+                max-width: 500px;
+            }
+            .response-card {
+                background: rgba(255,255,255,0.15);
+                padding: 12px 16px;
+                margin-bottom: 10px;
+                border-radius: 12px;
+                backdrop-filter: blur(5px);
+                box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                transition: 0.2s;
+            }
+            .response-card:hover {
+                background: rgba(255,255,255,0.25);
+            }
+            @media (max-width: 400px) {
+                input[type="text"], .response-history { width: 100%; }
+            }
+        </style>
+    </head>
+    <body>
+        <h1>
+            AI Voice Control
+        </h1>
+        <button id="start">
+            Start
+        </button>
+        <label for="voiceSelect">
+            Select Voice:
+        </label>
+        <select id="voiceSelect">
+        </select>
+        <label for="micSelect">
+        </label>
+        <select id="micSelect">
+        </select>
+        <p id="status">
+            Click Start To Talk Or Type Below.
+        </p>
+        <input type="text" id="textCommand" placeholder="Type Here">
+        <button id="sendText">
+            Send
+        </button>
+        <div class="response-history" id="responseHistory">
+        </div>
+        <script>
+            const micSelect = document.getElementById("micSelect");
+            let selectedMicId = null;
+            async function populateMics() {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const mics = devices.filter(d => d.kind === "audioinput");
+                micSelect.innerHTML = "";
+                mics.forEach((mic, index) => {
+                    const option = document.createElement("option");
+                    option.value = mic.deviceId;
+                    option.textContent = mic.label || `Microphone ${index + 1}`;
+                    micSelect.appendChild(option);
+                });
+                if (mics.length > 0) selectedMicId = mics[0].deviceId;
+            }
+            micSelect.onchange = () => {
+                selectedMicId = micSelect.value;
+            };
+            populateMics();
+            const startButton = document.getElementById("start");
+            const statusText  = document.getElementById("status");
+            const textInput = document.getElementById("textCommand");
+            const sendTextButton = document.getElementById("sendText");
+            const responseHistory = document.getElementById("responseHistory");
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const recognition = new SpeechRecognition();
+            recognition.lang = "en-US";
+            recognition.interimResults = false; 
+            recognition.maxAlternatives = 1;
+            recognition.continuous = true;
+            const WAKE_WORD = "jarvis";
+            let commandCooldown = false;
+            const API_KEY = "Put your api key here";
+            let lastResponses = [];
+            function updateResponseHistory(text) {
+                lastResponses.push(text);
+                if (lastResponses.length > 2) lastResponses.shift();
+                responseHistory.innerHTML = lastResponses.map(r => `<div class="response-card">${r}</div>`).join('');
+            }
+            const speechQueue = [];
+            let speaking = false;
+            function speak(text) {
+                speakJarvis(text);
+            }
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            function speakJarvis(text) {
+                speechQueue.push(text);
+                if (!speaking) playNextJarvis();
+            }
+            function playNextJarvis() {
+                if (speechQueue.length === 0) {
+                    speaking = false;
+                    return;
+                }
+                speaking = true;
+                const text = speechQueue.shift();
+                const utter = new SpeechSynthesisUtterance(text);
+                const voices = speechSynthesis.getVoices();
+                utter.voice = selectedVoice || voices[0];
+                utter.pitch = 0.9;
+                utter.rate = 1.05;
+                utter.volume = 1;
+                utter.onstart = () => {
+                };
+                utter.onend = () => {
+                    speaking = false;
+                    playNextJarvis();
+                };
+                speechSynthesis.speak(utter);
+            }
+            window.speechSynthesis.onvoiceschanged = () => {
+                console.log("Available Voices:", speechSynthesis.getVoices());
+            };
+            async function getWeatherAndSpeak() {
+                try {
+                    statusText.textContent = "Getting Your Location...";
+                    const pos = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 20000 });
+                    });
+                    const lat = pos.coords.latitude;
+                    const lon = pos.coords.longitude;
+                    statusText.textContent = "Fetching Weather...";
+                    const weather = await fetch(`https://wttr.in/${lat},${lon}?format=j1`).then(r => r.json());
+                    const area = weather.nearest_area?.[0];
+                    const city = area?.areaName?.[0]?.value || "Your Location";
+                    const state = area?.region?.[0]?.value || "";
+                    const tempF = weather.current_condition[0].temp_F;
+                    const spoken = `The Current Weather In ${city} ${state} Is ${tempF}°F`;
+                    speak(spoken);
+                    statusText.textContent = spoken;
+                    updateResponseHistory(spoken);
+                } catch (err) {
+                    const msg = "Could Not Get The Weather.";
+                    speak("Sorry, " + msg);
+                    statusText.textContent = msg;
+                    updateResponseHistory(msg);
+                }
+            }
+            const customCommands = {
+                "what is the weather": getWeatherAndSpeak,
+                "weather": getWeatherAndSpeak,
+                "current weather": getWeatherAndSpeak,
+                "activate dark mode": () => { 
+                    document.body.style.background = "#111"; 
+                    document.body.style.color = "white"; 
+                    speak("Dark Mode Enabled."); 
+                },
+                "disable dark mode": () => { 
+                    document.body.style.background = "linear-gradient(135deg, #6a11cb, #2575fc)"; 
+                    document.body.style.color = "white"; 
+                    speak("Dark Mode Disabled."); 
+                },
+                "time": () => {
+                    const time = new Date().toLocaleTimeString();
+                    speak(time);
+                    updateResponseHistory(time);
+                },
+                "what time is it": () => {
+                    const time = new Date().toLocaleTimeString();
+                    speak(time);
+                    updateResponseHistory(time);
+                }
+            }
+            async function processSpeech(input) {
+                const lower = input.toLowerCase().trim();
+                statusText.textContent = "Command: " + lower;
+                if (lower === "stop") {
+                    speechSynthesis.cancel();
+                    speechQueue.length = 0;
+                    speaking = false;
+                    statusText.textContent = "Speech Stopped.";
+                    updateResponseHistory("Speech Stopped.");
+                    return;
+                }
+                for (const command in customCommands) {
+                    if (lower.includes(command)) {
+                        customCommands[command]();
+                        return;
+                    }
+                }
+                const openWords = ["open", "launch", "start"];
+                const split = lower.split(" ");
+                const first = split[0];
+                if (openWords.includes(first)) {
+                    const appName = split.slice(1).join(" ").trim();
+                    fetch("http://localhost:3000/open-app", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ appName })
+                    })
+                    .then(r => r.text())
+                    .then(msg => { statusText.textContent = msg; speak(msg); })
+                    .catch(() => { statusText.textContent = "Server Error."; speak("Server Error."); });
+                    return;
+                }
+                try {
+                    const url = "https://gen.pollinations.ai/text/" + encodeURIComponent(lower);
+                    const response = await fetch(url, {
+                        method: "GET",
+                        headers: { "Authorization": `Bearer ${API_KEY}` }
+                    });
+                    const data = await response.text();
+                    statusText.textContent = data;
+                    speak(data);
+                } catch (err) {
+                    console.error(err);
+                    speak("AI Error.");
+                    statusText.textContent = "AI Error.";
+                }
+            }
+            startButton.onclick = async () => {
+                await setupMic();
+                recognition.start();
+                statusText.textContent = `Always Listening... Say: ${WAKE_WORD}`;
+            };
+            sendTextButton.onclick = () => {
+                const text = textInput.value.trim();
+                if (!text) return;
+                processSpeech(text);
+                textInput.value = "";
+            };
+            recognition.onresult = (event) => {
+                const result = event.results[event.results.length - 1];
+                if (!result.isFinal) return;
+                if (commandCooldown) return;
+                let transcript = result[0].transcript.trim().toLowerCase();
+                const wakeIndex = transcript.indexOf(WAKE_WORD);
+                if (wakeIndex === -1) {
+                    statusText.textContent = `Waiting For: ${WAKE_WORD}`;
+                    return;
+                }
+                const commandText = transcript.slice(wakeIndex + WAKE_WORD.length).trim();
+                if (!commandText) {
+                    statusText.textContent = `Say A Command After ${WAKE_WORD}`;
+                    return;
+                }
+                commandCooldown = true;
+                setTimeout(() => commandCooldown = false, 1500);
+                processSpeech(commandText);
+            };
+            let micStream, audioContext, analyser, dataArray;
+            const noiseThreshold = 0.04;
+            async function setupMic() {
+                if (micStream) {
+                    micStream.getTracks().forEach(track => track.stop());
+                }
+                micStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { deviceId: selectedMicId ? { exact: selectedMicId } : undefined } 
+                });
+                audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(micStream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 512;
+                source.connect(analyser);
+                dataArray = new Uint8Array(analyser.fftSize);
+            }
+            function isSpeaking() {
+                analyser.getByteTimeDomainData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    const normalized = (dataArray[i] - 128) / 128;
+                    sum += normalized * normalized;
+                }
+                const rms = Math.sqrt(sum / dataArray.length);
+                return rms > noiseThreshold;
+            }
+            recognition.onend = () => recognition.start();
+            recognition.onerror = (event) => {
+                console.error("Speech Error:", event.error);
+                statusText.textContent = "Error: " + event.error;
+            };
+            const voiceSelect = document.getElementById("voiceSelect");
+            let selectedVoice = null;
+            function populateVoices() {
+                const voices = speechSynthesis.getVoices();
+                voiceSelect.innerHTML = "";
+                voices.forEach((voice, index) => {
+                    const option = document.createElement("option");
+                    option.value = index;
+                    option.textContent = `${voice.name} (${voice.lang})${voice.default ? " [Default]" : ""}`;
+                    voiceSelect.appendChild(option);
+                });
+                selectedVoice =
+                voices.find(v => v.name.toLowerCase().includes("george") && v.lang.toLowerCase() === "en-gb") ||
+                voices.find(v => v.lang.toLowerCase() === "en-gb") ||
+                voices.find(v => v.lang.startsWith("en")) ||
+                voices[0];
+                const defaultIndex = voices.indexOf(selectedVoice);
+                if (defaultIndex >= 0) voiceSelect.selectedIndex = defaultIndex;
+            }
+            voiceSelect.onchange = () => {
+                const voices = speechSynthesis.getVoices();
+                selectedVoice = voices[voiceSelect.value];
+            };
+            window.speechSynthesis.onvoiceschanged = populateVoices;
+            populateVoices();
+        </script>
+    </body>
+</html>
